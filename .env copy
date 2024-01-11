@@ -1,4 +1,5 @@
 BOT_TOKEN="XXXXX"
+FERNET_KEY="fernet key"
 
 MYSQL_URL="XXXXX"
 
