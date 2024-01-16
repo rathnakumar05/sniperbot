@@ -44,10 +44,10 @@ async def main() -> None:
 
 if __name__ == "__main__":
     load_dotenv()
-    logging.basicConfig(level=logging.INFO, stream=sys.stdout)
-    # logging.basicConfig(filename="sniperbot.log",
-    #             filemode='a',
-    #             format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s',
-    #             datefmt='%Y-%m-%d %H:%M:%S',
-    #             level=logging.INFO)
+    # logging.basicConfig(level=logging.INFO, stream=sys.stdout)
+    logging.basicConfig(filename="sniperbot.log",
+                filemode='a',
+                format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s',
+                datefmt='%Y-%m-%d %H:%M:%S',
+                level=logging.INFO)
     asyncio.run(main())
