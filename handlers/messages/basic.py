@@ -13,12 +13,14 @@ from handlers.callback_factory.SnipeCallbackFactory import SnipeCallbackFactory
 from handlers.callback_factory.TokenCallbackFactory import TokenCallbackFactory
 from handlers.keyboards.general import start_0, start_1, wallet_0, wallet_1
 from utils.keyboards import get_buttons
+from utils.general import support_notifier
 
 basic_msg_router = Router(name=__name__)
 
 @basic_msg_router.message(CommandStart())
 async def start_command(message: types.Message, sessionmaker: async_sessionmaker) -> Any:
     userid = message.from_user.id
+    new_user_flag = 1
     async with sessionmaker() as session:
         wallet_stmt = select(Wallet).filter_by(userid=userid, wallet_name='wallet1').limit(1)
         wallet = await session.execute(wallet_stmt)
@@ -27,10 +29,20 @@ async def start_command(message: types.Message, sessionmaker: async_sessionmaker
         if not wallet:
             reply_markup = start_0()
         else:
+            new_user_flag = 0
             reply_markup = start_1()
             
         await message.answer('Hello buddy!')
         await message.answer("📜 Menu 👇", reply_markup=reply_markup)
+
+        if new_user_flag==1:
+            await support_notifier(
+                message_details={
+                    "status": "INFO 🔔",
+                    "from_user": message.from_user,
+                    "message": "New User"
+                }
+            )
     return
 
 @basic_msg_router.message(Command("snipe"))

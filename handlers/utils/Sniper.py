@@ -52,7 +52,6 @@ class Sniper():
                 max_priority_fee_per_gas = int(max_priority_fee_per_gas + (max_priority_fee_per_gas * 0.10))
                 max_fee_per_gas = int(gas_price + (gas_price * 0.20))
                 gas = 350000
-                print("gas details", [ gas, (max_fee_per_gas/10**9), (max_priority_fee_per_gas/10**9) ])
                 return [ gas, max_fee_per_gas, max_priority_fee_per_gas ]
             else:
                 gas_error = True

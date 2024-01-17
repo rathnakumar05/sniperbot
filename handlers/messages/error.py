@@ -5,11 +5,14 @@ from aiogram.filters.exception import ExceptionTypeFilter
 from sqlalchemy.exc import SQLAlchemyError
 
 from handlers.utils.general import tbl_log
+from utils.general import support_notifier
 
 error_msg_router = Router(name=__name__)
 
 @error_msg_router.error(ExceptionTypeFilter(SQLAlchemyError), F.update.message.as_("message"))
 async def handle_exception(event: types.ErrorEvent, message: types.Message):
+    await message.answer("😕 Something went wrong, please try again later! 🔄🙏")
+    
     userid = message.from_user.id
     reply_to_message = None
     if message.reply_to_message:
@@ -23,11 +26,19 @@ async def handle_exception(event: types.ErrorEvent, message: types.Message):
             callback_data = None,
             message = message.text
     )
-    print(traceback.format_exc())
-    await message.answer("😕 Something went wrong, please try again later! 🔄🙏")
+    # print(traceback.format_exc())
+    await support_notifier(
+        message_details={
+            "status": "ERROR 🛑",
+            "from_user": message.from_user,
+            "message": event.exception
+        }
+    )
 
 @error_msg_router.error(ExceptionTypeFilter(Exception), F.update.message.as_("message"))
 async def handle_exception1(event: types.ErrorEvent, message: types.Message):
+    await message.answer("😕 Something went wrong, please try again later! 🔄🙏")
+
     userid = message.from_user.id
     reply_to_message = None
     if message.reply_to_message:
@@ -41,5 +52,11 @@ async def handle_exception1(event: types.ErrorEvent, message: types.Message):
             callback_data = None,
             message = message.text
     )
-    print(traceback.format_exc())
-    await message.answer("😕 Something went wrong, please try again later! 🔄🙏")
+    # print(traceback.format_exc())
+    await support_notifier(
+        message_details={
+            "status": "ERROR 🛑",
+            "from_user": message.from_user,
+            "message": event.exception
+        }
+    )
