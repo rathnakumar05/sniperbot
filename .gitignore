@@ -3,3 +3,4 @@ __pycache__/
 
 .env
 sniperbot.log
+sniperbot.service
