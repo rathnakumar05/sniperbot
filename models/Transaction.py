@@ -21,6 +21,8 @@ class Transaction(Base):
     to_symbol = Column(String(150))
     to_decimal = Column(String(45))
     to_value = Column(String(200))
+    fee = Column(String(100))
+    version = Column(String(50))
     action = Column(String(45))
     tx_status = Column(SmallInteger)
     created_at = Column(DateTime, default=func.current_timestamp())

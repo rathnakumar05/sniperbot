@@ -12,6 +12,7 @@ from handlers.callback_factory.SnipeCallbackFactory import SnipeCallbackFactory
 from handlers.callback_factory.TokenCallbackFactory import TokenCallbackFactory
 from handlers.keyboards.general import start_0, start_1
 from handlers.utils.Sniper import Sniper
+from handlers.utils.SniperV3 import SniperV3
 from utils.keyboards import get_buttons
 
 snipe_cb_router = Router(name=__name__)
@@ -70,7 +71,9 @@ async def value_buy(callback_query: types.CallbackQuery, callback_data: TokenCal
     value = callback_data.value
     chain = callback_data.chain
     sniper = Sniper(callback_query=callback_query, sessionmaker=sessionmaker)
-    await sniper.buy(token_addr=token_addr, value=value, chain=chain)
+    if(await sniper.buy(token_addr=token_addr, value=value, chain=chain)==False):
+        sniper = SniperV3(callback_query=callback_query, sessionmaker=sessionmaker)
+        await sniper.buy(token_addr=token_addr, value=value, chain=chain)
     
     return
 
@@ -130,7 +133,9 @@ async def value_sell(callback_query: types.CallbackQuery, callback_data: TokenCa
     value = callback_data.value
     chain = callback_data.chain
     sniper = Sniper(callback_query=callback_query, sessionmaker=sessionmaker)
-    await sniper.sell(token_addr=token_addr, value=value, chain=chain)
+    if(await sniper.sell(token_addr=token_addr, value=value, chain=chain)==False):
+        sniper = SniperV3(callback_query=callback_query, sessionmaker=sessionmaker)
+        await sniper.sell(token_addr=token_addr, value=value, chain=chain)
 
     return
 

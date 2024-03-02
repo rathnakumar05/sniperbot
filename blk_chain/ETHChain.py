@@ -9,6 +9,9 @@ class EthChain(Provider):
     eth_addr = None
     uniswap_v2_router_addr = None
     uniswap_v2_factory_addr = None
+    uniswap_v3_factory_addr = None
+    uniswap_v3_router_addr = None
+    uniswap_v3_quoter_addr = None
 
     def __init__(self) -> None:
         url = os.getenv("ETH_PROVIDER")
@@ -17,6 +20,9 @@ class EthChain(Provider):
         self.eth_addr = os.getenv("ETH_ADDR")
         self.uniswap_v2_router_addr = os.getenv("ETH_UNISWAP_V2_ROUTER_ADDR")
         self.uniswap_v2_factory_addr = os.getenv("ETH_UNISWAP_V2_FACTORY_ADDR")
+        self.uniswap_v3_router_addr = os.getenv("ETH_UNISWAP_V3_ROUTER_ADDR")
+        self.uniswap_v3_factory_addr = os.getenv("ETH_UNISWAP_V3_FACTORY_ADDR")
+        self.uniswap_v3_quoter_addr = os.getenv("ETH_UNISWAP_V3_QUOTER_ADDR")
     
     def __call__(self) -> Any:
         return self.w3
@@ -26,6 +32,10 @@ class AsyncEthChain(AsyncProvider):
     eth_addr = None
     uniswap_v2_router_addr = None
     uniswap_v2_factory_addr = None
+    uniswap_v3_factory_addr = None
+    uniswap_v3_router_addr = None
+    uniswap_v3_quoter_addr = None
+
 
     def __init__(self) -> None:
         url = os.getenv("ETH_PROVIDER")
@@ -34,6 +44,9 @@ class AsyncEthChain(AsyncProvider):
         self.eth_addr = os.getenv("ETH_ADDR")
         self.uniswap_v2_router_addr = os.getenv("ETH_UNISWAP_V2_ROUTER_ADDR")
         self.uniswap_v2_factory_addr = os.getenv("ETH_UNISWAP_V2_FACTORY_ADDR")
-    
+        self.uniswap_v3_router_addr = os.getenv("ETH_UNISWAP_V3_ROUTER_ADDR")
+        self.uniswap_v3_factory_addr = os.getenv("ETH_UNISWAP_V3_FACTORY_ADDR")
+        self.uniswap_v3_quoter_addr = os.getenv("ETH_UNISWAP_V3_QUOTER_ADDR")
+        
     def __call__(self) -> Any:
         return self.w3

@@ -7,6 +7,8 @@ from aiogram.enums.parse_mode import ParseMode
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import async_sessionmaker
 from sqlalchemy.exc import SQLAlchemyError
+import eth_abi.packed
+from web3 import Web3, AsyncWeb3
 
 from models.Wallet import Wallet
 from models.Transaction import Transaction
@@ -16,7 +18,11 @@ from uniswap.uniswapv2.UniswapFactoryV2 import UniswapFactoryV2
 from uniswap.uniswapv2.UniswapRouterV2 import UniswapRouterV2
 from handlers.keyboards.general import start_0, start_1
 
-class Sniper():
+from uniswap.uniswapv3.UniswapFactoryV3 import UniswapFactoryV3
+from uniswap.uniswapv3.UniswapQuoterV3 import UniswapQuoterV3
+from uniswap.uniswapv3.UniswapRouterV3 import UniswapRouterV3
+
+class SniperV3():
 
     message = None
     callback_query = None
@@ -31,10 +37,10 @@ class Sniper():
         if chain=="ETH":
             return AsyncEthChain()
         
-    async def check_liquidity_v2(self, contract_addr, w3, token1, token2):
-        uniswap_v2_factory_addr = w3.to_checksum_address(contract_addr)
-        uniswap_v2 = UniswapFactoryV2(w3, uniswap_v2_factory_addr)
-        pool_addr = await uniswap_v2.async_get_pair(token1=token1, token2=token2)
+    async def check_liquidity_v3(self, contract_addr, w3, token1, token2, fee):
+        uniswap_v3_factory_addr = w3.to_checksum_address(contract_addr)
+        uniswap_v3 = UniswapFactoryV3(w3, uniswap_v3_factory_addr)
+        pool_addr = await uniswap_v3.async_get_pair(token1=token1, token2=token2, fee=fee)
         return pool_addr
     
     def get_gas_details(self, w3):
@@ -67,7 +73,7 @@ class Sniper():
         userid = update.from_user.id
         error_flag = None
 
-        await self.answer(text="Please wait ⏳, this transaction will take 1 to 5 minutes❗ Selling 🛒💸")
+        await self.answer(text="Liquidity was not found in Uniswap v2; now checking in Uniswap v3 🛒💸")
 
         async with self.sessionmaker() as session:
             wallet_stmt = select(Wallet).filter_by(userid=userid, wallet_name='wallet1').limit(1)
@@ -97,12 +103,18 @@ class Sniper():
                     value = (self.to_fraction(token_balance, token_decimal)*value)
 
                 if(self.to_fraction(token_balance, token_decimal) > Decimal(value)):
-                    pool_addr = await self.check_liquidity_v2(contract_addr=connection.uniswap_v2_factory_addr, w3=w3, token1=token_addr, token2=eth_addr)
+                    fee = None
+                    fees = [ 3000, 10000, 500 ]
+                    for fee in fees:
+                        pool_addr = await self.check_liquidity_v3(contract_addr=connection.uniswap_v3_factory_addr, w3=w3, token1=eth_addr, token2=token_addr, fee=fee)
+                        if pool_addr!="0x0000000000000000000000000000000000000000":
+                            break
                     if not pool_addr=="0x0000000000000000000000000000000000000000":
                         gas, max_fee_per_gas, max_priority_fee_per_gas = self.get_gas_details(w3)
-                        uniswap_router_v2 = UniswapRouterV2(w3, w3.to_checksum_address(connection.uniswap_v2_router_addr))
-                        token_amount, eth_amount = await uniswap_router_v2.async_get_amounts_out(self.from_fraction(Decimal(value), token_decimal), path)
-                        # print(w3.from_wei(eth_amount, 'ether'), self.to_fraction(token_amount, token_decimal))
+                        uniswap_v3_quoter = UniswapQuoterV3(w3, w3.to_checksum_address(connection.uniswap_v3_quoter_addr))
+                        path = eth_abi.packed.encode_packed(['address','uint24','address'], [token_addr, fee, eth_addr])
+                        token_amount = self.from_fraction(Decimal(value), token_decimal)
+                        eth_amount, sqrtPriceX96After, initializedTicksCrossed, gasEstimate = await uniswap_v3_quoter.async_get_amounts_out(token_amount, path)
                         amount_out_with_slippage = int(eth_amount * 0.70)
                         latest_block = await w3.eth.get_block('latest')
                         deadline = latest_block['timestamp'] + 10 * 60
@@ -114,7 +126,7 @@ class Sniper():
                             'nonce': await w3.eth.get_transaction_count(account_addr),
                         }
                         approve_tx = await token_abi.async_approve(
-                                address=w3.to_checksum_address(connection.uniswap_v2_router_addr), 
+                                address=w3.to_checksum_address(connection.uniswap_v3_router_addr), 
                                 amount=(token_amount + 10000), 
                                 tx_param=approve_tx_param, 
                                 private_key=private_key
@@ -132,13 +144,14 @@ class Sniper():
                             "from_name":  token_name,
                             "from_symbol":  token_symbol,
                             "from_decimal":  token_decimal,
-                            "from_value":  self.from_fraction(Decimal(value), token_decimal),
+                            "from_value":  token_amount,
                             "to_addr":  eth_addr,
                             "to_name":  "Ether",
                             "to_symbol":  "ETH",
                             "to_decimal":  18,
                             "to_value":  eth_amount,
-                            "version": "V2",
+                            "fee": fee,
+                            "version": "V3",
                             "action": "sell"
                         }
                         transaction_params["tx_method"] = "approve"
@@ -161,24 +174,27 @@ class Sniper():
 
                         if approve_tx_receipt.status == 1:
                             tx_param = {
-                                'from': account_addr, 
+                                'from': w3.to_checksum_address(account_addr), 
                                 'gas': gas,
                                 'maxFeePerGas': max_fee_per_gas,
                                 'maxPriorityFeePerGas': max_priority_fee_per_gas,
                                 'nonce': await w3.eth.get_transaction_count(account_addr),
                             }
-                            tx_hash = await uniswap_router_v2.async_sell(
-                                    amount=self.from_fraction(Decimal(value), token_decimal), 
-                                    min_amount=amount_out_with_slippage, 
-                                    path=path, 
-                                    account_address=account_addr, 
-                                    deadline=deadline,
+                            tx_param0 = (
+                                path, 
+                                account_addr, 
+                                token_amount, 
+                                amount_out_with_slippage 
+                            )
+                            uniswap_router_v3 = UniswapRouterV3(w3, w3.to_checksum_address(connection.uniswap_v3_router_addr))
+                            tx_hash = await uniswap_router_v3.async_sell(
+                                    tx_param0=tx_param0,
                                     tx_param=tx_param,
                                     private_key=private_key
                             )
 
                             try:
-                                tx_receipt = await uniswap_router_v2.async_get_receipt(tx_hash)
+                                tx_receipt = await uniswap_router_v3.async_get_receipt(tx_hash)
                             except Exception as err:
                                 tx_receipt = SimpleNamespace( status='na' )
 
@@ -211,7 +227,6 @@ class Sniper():
                         else:
                             error_flag = "no-approve"
                     else:
-                        return False
                         error_flag = "no-liquidity"
                 else:
                    error_flag = "insufficient" 
@@ -244,7 +259,7 @@ class Sniper():
         userid = update.from_user.id
         error_flag = None
 
-        await self.answer(text="Please wait ⏳, this transaction will take 1 to 5 minutes❗ Buying 🛒💸")
+        await self.answer(text="Liquidity was not found in Uniswap v2; now checking in Uniswap v3 🛒💸")
 
         async with self.sessionmaker() as session:
             wallet_stmt = select(Wallet).filter_by(userid=userid, wallet_name='wallet1').limit(1)
@@ -258,9 +273,10 @@ class Sniper():
                 account_addr = w3.to_checksum_address(wallet.account)
                 eth_addr = w3.to_checksum_address(connection.eth_addr)
                 token_addr = w3.to_checksum_address(token_addr)
-                path = [eth_addr, token_addr]
 
+                
                 token_abi = TokenAbi(w3, token_addr)
+                eth_contract = TokenAbi(w3, eth_addr)
                 token_name = await token_abi.async_name()
                 token_symbol = await token_abi.async_symbol()
                 token_decimal = await token_abi.async_decimal()
@@ -268,78 +284,134 @@ class Sniper():
                 eth_balance = await w3.eth.get_balance(account_addr)
 
                 if(w3.from_wei(eth_balance, 'ether') > Decimal(value)):
-                    pool_addr = await self.check_liquidity_v2(contract_addr=connection.uniswap_v2_factory_addr, w3=w3, token1=eth_addr, token2=token_addr)
+                    fee = None
+                    fees = [ 3000, 10000, 500 ]
+                    for fee in fees:
+                        pool_addr = await self.check_liquidity_v3(contract_addr=connection.uniswap_v3_factory_addr, w3=w3, token1=eth_addr, token2=token_addr, fee=fee)
+                        if pool_addr!="0x0000000000000000000000000000000000000000":
+                            break
+
                     if not pool_addr=="0x0000000000000000000000000000000000000000":
                         gas, max_fee_per_gas, max_priority_fee_per_gas = self.get_gas_details(w3)
-                        uniswap_router_v2 = UniswapRouterV2(w3, w3.to_checksum_address(connection.uniswap_v2_router_addr))
-                        eth_amount, token_amount = await uniswap_router_v2.async_get_amounts_out(w3.to_wei(value, 'ether'), path)
-                        # print(w3.from_wei(eth_amount, 'ether'), self.to_fraction(token_amount, token_decimal))
+                        uniswap_v3_quoter = UniswapQuoterV3(w3, w3.to_checksum_address(connection.uniswap_v3_quoter_addr))
+                        path = eth_abi.packed.encode_packed(['address','uint24','address'], [eth_addr, fee, token_addr])
+                        eth_amount = w3.to_wei(value, 'ether')
+                        token_amount, sqrtPriceX96After, initializedTicksCrossed, gasEstimate = await uniswap_v3_quoter.async_get_amounts_out(eth_amount, path)
                         amount_out_with_slippage = int(token_amount * 0.70)
                         latest_block = await w3.eth.get_block('latest')
                         deadline = latest_block['timestamp'] + 10 * 60
-                        tx_param = {
-                            'from': account_addr,
-                            'value': w3.to_wei(value, 'ether'),  
+
+                        approve_tx_param = {
                             'gas': gas,
                             'maxFeePerGas': max_fee_per_gas,
                             'maxPriorityFeePerGas': max_priority_fee_per_gas,
                             'nonce': await w3.eth.get_transaction_count(account_addr),
                         }
-                        tx_hash = await uniswap_router_v2.async_buy(
-                                min_amount = amount_out_with_slippage,
-                                path = path,
-                                account_address = account_addr,
-                                deadline = deadline,
-                                private_key = private_key,
-                                tx_param = tx_param
+
+                        approve_tx = await eth_contract.async_approve(
+                            address=w3.to_checksum_address(connection.uniswap_v3_router_addr), 
+                            amount=(eth_amount + 10000), 
+                            tx_param=approve_tx_param, 
+                            private_key = private_key
                         )
+
                         try:
-                            tx_receipt = await uniswap_router_v2.async_get_receipt(tx_hash)
+                            approve_tx_receipt = await w3.eth.wait_for_transaction_receipt(approve_tx)
                         except Exception as err:
-                            tx_receipt = SimpleNamespace( status='na' )
+                            approve_tx_receipt = SimpleNamespace( status='na' )
 
                         transaction_params = {
                             "userid":  userid,
-                            "tx_hash":  tx_hash.hex(),
-                            "tx_method":  "transfer",
                             "account":  account_addr,
                             "from_addr":  eth_addr,
                             "from_name":  "Ether",
                             "from_symbol":  "ETH",
                             "from_decimal":  18,
-                            "from_value":  w3.to_wei(value, 'ether'),
+                            "from_value":  eth_amount,
                             "to_addr":  token_addr,
                             "to_name":  token_name,
                             "to_symbol":  token_symbol,
                             "to_decimal":  token_decimal,
                             "to_value":  token_amount,
-                            "version": "V2",
+                            "fee": fee,
+                            "version": "V3",
                             "action": "buy"
                         }
-                        
-                        tx_status = 0
-                        if tx_receipt.status==1:
-                            tx_status = 1
-                        elif tx_receipt.status=='na':
-                            tx_status = 2
-                        transaction_params["tx_status"] = tx_status
 
-                        transaction_stmt = Transaction(**transaction_params)
+                        transaction_params["tx_method"] = "approve"
+                        transaction_params["tx_hash"] = approve_tx.hex()
+                        
+                        approve_tx_status = 0
+                        if approve_tx_receipt.status==1:
+                            approve_tx_status = 1
+                        elif approve_tx_receipt.status=='na':
+                            approve_tx_status = 2
+                        transaction_params["tx_status"] = approve_tx_status
+
+                        approve_tx_stmt = Transaction(**transaction_params)
                         try:
-                            session.add(transaction_stmt)
+                            session.add(approve_tx_stmt)
                             await session.commit()
                         except SQLAlchemyError as err:
                             print(err)
                             pass
 
-                        if tx_receipt.status == 1:
-                            await self.answer(text=f"🟢 Bought successfully❗ 🟢\n\n📄 Transaction Hash: {tx_hash.hex()} \n💵 {token_name} Amount: {self.to_fraction(token_amount, token_decimal)} \n<a href=\"{os.getenv("ETH_SCAN_URL")}{tx_hash.hex()}\">check transaction</a>", parse_mode=ParseMode('HTML'))
-                        elif tx_receipt.status == 'na':
-                            error_flag = "unknown-transaction"
+                        if approve_tx_receipt.status == 1:
+                            tx_param = {
+                                'from': w3.to_checksum_address(account_addr),
+                                'gas': gas,
+                                'maxFeePerGas': max_fee_per_gas,
+                                'maxPriorityFeePerGas': max_priority_fee_per_gas,
+                                'nonce': await w3.eth.get_transaction_count(account_addr),
+                            }
+                            tx_param0 = (
+                                path, 
+                                account_addr, 
+                                eth_amount, 
+                                amount_out_with_slippage 
+                            )
+                            uniswap_router_v3 = UniswapRouterV3(w3, w3.to_checksum_address(connection.uniswap_v3_router_addr))
+                            tx_hash = await uniswap_router_v3.async_buy(
+                                    tx_param0 = tx_param0,
+                                    tx_param = tx_param,
+                                    private_key = private_key,
+                            )
+
+                            try:
+                                tx_receipt = await uniswap_router_v3.async_get_receipt(tx_hash)
+                            except Exception as err:
+                                tx_receipt = SimpleNamespace( status='na' )
+
+                            transaction_params["tx_method"] = "transfer"
+                            transaction_params["tx_hash"] = tx_hash.hex()
+
+                            tx_status = 0
+                            if tx_receipt.status==1:
+                                tx_status = 1
+                            elif tx_receipt.status=='na':
+                                tx_status = 2
+                            transaction_params["tx_status"] = tx_status
+
+                            transaction_stmt = Transaction(**transaction_params)
+                            try:
+                                session.add(transaction_stmt)
+                                await session.commit()
+                            except SQLAlchemyError as err:
+                                print(err)
+                                pass
+
+                            if tx_receipt.status == 1:
+                                await self.answer(text=f"🟢 Bought successfully❗ 🟢\n\n📄 Transaction Hash: {tx_hash.hex()} \n💵 {token_name} Amount: {self.to_fraction(token_amount, token_decimal)} \n<a href=\"{os.getenv("ETH_SCAN_URL")}{tx_hash.hex()}\">check transaction</a>", parse_mode=ParseMode('HTML'))
+                            elif tx_receipt.status == 'na':
+                                error_flag = "unknown-transaction"
+                            else:
+                                error_flag = "no-transaction"
+
+                        elif approve_tx_receipt.status == 'na':
+                            error_flag = "unknown-approve"      
                         else:
-                            error_flag = "no-transaction"
+                            error_flag = "no-approve"                        
                     else:
-                        return False
                         error_flag = "no-liquidity"
                 else:
                    error_flag = "insufficient" 
@@ -361,7 +433,7 @@ class Sniper():
         elif error_flag:
             await self.answer(text=error_flag)
             
-        return True
+        return 
 
     def to_fraction(self, value, decimal):
         return value / 10**decimal

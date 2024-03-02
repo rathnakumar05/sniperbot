@@ -13,6 +13,7 @@ from models.Wallet import Wallet
 from handlers.callback_factory.WalletCallbackFactory import WalletCallbackFactory
 from handlers.callback_factory.TokenCallbackFactory import TokenCallbackFactory
 from handlers.utils.Sniper import Sniper
+from handlers.utils.SniperV3 import SniperV3
 from handlers.filters.ReplayToMsgFilter import ReplayToMsgFilter
 from handlers.filters.ReplayToMsgStartsFilter import ReplayToMsgStartsFilter
 from handlers.keyboards.general import start_0, start_1
@@ -97,7 +98,9 @@ async def token_value_replay(message: types.Message, sessionmaker: async_session
             token_details[t[0]] = t[1]
         token_details['value'] = token_value
         sniper = Sniper(message=message, sessionmaker=sessionmaker)
-        await sniper.buy(**token_details)
+        if(await sniper.buy(**token_details)==False):
+            sniper = SniperV3(message=message, sessionmaker=sessionmaker)
+            await sniper.buy(**token_details)
     else:
         error_flag = "invalid-value"
 
@@ -187,7 +190,9 @@ async def token_value_replay(message: types.Message, sessionmaker: async_session
             token_details[t[0]] = t[1]
         token_details['value'] = token_value
         sniper = Sniper(message=message, sessionmaker=sessionmaker)
-        await sniper.sell(**token_details)
+        if(await sniper.sell(**token_details)==False):
+            sniper = SniperV3(message=message, sessionmaker=sessionmaker)
+            await sniper.sell(**token_details)
     else:
         error_flag = "invalid-value"
 
